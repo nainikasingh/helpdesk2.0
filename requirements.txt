@@ -1,0 +1,7 @@
+fastapi 
+uvicorn 
+pandas 
+anthropic
+gspread
+oauth2client
+python-dotenv
