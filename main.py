@@ -1,6 +1,12 @@
 import os
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.responses import RedirectResponse, Response
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
+from utils.secrets import JWT_SECRET
 from pydantic import BaseModel
 from typing import List
 import gspread
@@ -16,6 +22,65 @@ CLAUDE_API_KEY = os.getenv("CLAUDE_API_KEY")
 client = Anthropic(api_key=CLAUDE_API_KEY)
 
 app = FastAPI()
+
+
+# Define security scheme (Basic Auth)
+security = HTTPBasic()
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Function to enforce authentication for Swagger UI & OpenAPI
+async def enforce_docs_auth(request: Request):
+    if request.url.path in ["/docs", "/openapi.json"]:
+        auth_header = request.headers.get("Authorization")
+        if not auth_header or not auth_header.startswith("Basic "):
+            return Response(
+                headers={"WWW-Authenticate": "Basic"},
+                status_code=401,
+                content="Unauthorized: Missing authentication"
+            )
+
+        # Decode the Base64-encoded credentials
+        encoded_credentials = auth_header.split("Basic ")[1]
+        decoded_credentials = base64.b64decode(encoded_credentials).decode("utf-8")
+        username, password = decoded_credentials.split(":", 1)
+
+        # Validate credentials
+        correct_username = "Admin"
+        correct_password = JWT_SECRET  # Ensure JWT_SECRET is set correctly
+
+        if username != correct_username or password != correct_password:
+            return Response(
+                headers={"WWW-Authenticate": "Basic"},
+                status_code=401,
+                content="Unauthorized: Incorrect credentials"
+            )
+
+# Add authentication middleware for Swagger UI & OpenAPI
+@app.middleware("http")
+async def docs_auth_middleware(request: Request, call_next):
+    response = await enforce_docs_auth(request)
+    if response:
+        return response  # Return 401 if unauthorized
+
+    return await call_next(request)
+
+# Secure the Swagger UI
+@app.get("/docs", include_in_schema=False)
+async def get_documentation():
+    return get_swagger_ui_html(openapi_url="/openapi.json", title="API Docs")
+
+# Secure the OpenAPI schema (optional)
+@app.get("/openapi.json", include_in_schema=False)
+async def get_open_api_endpoint():
+    return get_openapi(title="API", version="1.0.0", routes=app.routes)
 
 # Load Google Sheet once at startup
 df = None
