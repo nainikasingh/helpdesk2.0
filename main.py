@@ -23,7 +23,6 @@ client = Anthropic(api_key=CLAUDE_API_KEY)
 
 app = FastAPI()
 
-
 # Define security scheme (Basic Auth)
 security = HTTPBasic()
 
